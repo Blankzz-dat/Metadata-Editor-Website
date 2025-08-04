@@ -6,6 +6,7 @@ app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# ------------------- MetadataFile Class -------------------
 class MetadataFile:
     MAGIC = 0xFAB11BAF
     class StringLiteral:
@@ -75,6 +76,7 @@ class MetadataFile:
         return BytesIO(self.file_data)
 
 
+# ------------------- Routes -------------------
 @app.route("/", methods=["GET", "POST"])
 def index():
     error = None
@@ -85,7 +87,6 @@ def index():
             filepath = os.path.join(UPLOAD_FOLDER, filename)
             file.save(filepath)
             try:
-                # Try to parse once here to catch errors early
                 MetadataFile(filepath)
                 return redirect(url_for("edit", filename=filename))
             except Exception as e:
@@ -95,28 +96,18 @@ def index():
     <!doctype html>
     <html lang="en">
     <head>
-        <title>Metadata Editor Upload</title>
+        <title>Upload Metadata</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-        <style>
-            body { background-color: #121212; color: #eee; }
-            .container { margin-top: 40px; max-width: 500px; }
-            label { font-weight: bold; }
-            input[type=file] { background-color: #1e1e1e; color: #eee; }
-            button { background-color: #bb86fc; color: black; }
-            button:hover { background-color: #9b6cfb; }
-            .error { color: #ff6b6b; margin-top: 15px; font-weight: bold; }
-        </style>
+        <style>body{background:#121212;color:#eee}.container{margin-top:50px;max-width:400px}</style>
     </head>
     <body>
         <div class="container">
-            <h2 class="mb-4 text-center">Upload Metadata File</h2>
+            <h3>Upload Metadata File</h3>
             <form method="POST" enctype="multipart/form-data" class="d-flex flex-column gap-3">
-                <input type="file" name="file" required class="form-control form-control-dark">
-                <button type="submit" class="btn btn-primary">Upload</button>
+                <input type="file" name="file" required class="form-control">
+                <button class="btn btn-primary">Upload</button>
             </form>
-            {% if error %}
-            <div class="error">{{ error }}</div>
-            {% endif %}
+            {% if error %}<div class="text-danger mt-3">{{ error }}</div>{% endif %}
         </div>
     </body>
     </html>
@@ -128,171 +119,131 @@ def edit():
     filename = request.args.get("filename")
     if not filename:
         return redirect(url_for("index"))
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    if not os.path.isfile(filepath):
-        return redirect(url_for("index"))
-
-    try:
-        meta_obj = MetadataFile(filepath)
-    except Exception as e:
-        return f"Failed to parse metadata file: {e}", 400
-
-    strings = meta_obj.get_strings() # [:100]
-
     return render_template_string("""
     <!doctype html>
-    <html lang="en" data-bs-theme="dark">
+    <html lang="en">
     <head>
-        <title>Metadata String Editor</title>
+        <title>Metadata Editor</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <style>
-            body { background-color: #121212; color: #eee; }
-            table tr:hover { background-color: #2c1150 !important; cursor: pointer; }
-            #searchBox { max-width: 400px; margin-bottom: 15px; }
-            .modal-content {
-                background-color: #1e1e1e; color: #eee;
-                border: 2px solid #bb86fc;
-            }
-            .modal-header, .modal-footer {
-                border-color: #bb86fc;
-            }
-            .btn-primary {
-                background-color: #bb86fc;
-                border-color: #bb86fc;
-                color: black;
-            }
-            .btn-primary:hover {
-                background-color: #9b6cfb;
-                border-color: #9b6cfb;
-                color: black;
-            }
+            body{background:#121212;color:#eee}
+            table tr:hover{background:#2c1150;cursor:pointer}
+            #pagination{margin-top:10px}
         </style>
     </head>
     <body>
-    <div class="container mt-3">
-        <h2 class="mb-3 text-center">Metadata Strings</h2>
-        <input type="text" id="searchBox" class="form-control form-control-dark" placeholder="Search strings...">
-        <div class="table-responsive" style="max-height: 70vh; overflow-y: auto;">
-        <table class="table table-dark table-hover table-striped" id="stringTable">
-            <thead>
-                <tr>
-                    <th style="width: 60px;">Index</th>
-                    <th>String</th>
-                </tr>
-            </thead>
-            <tbody>
-            {% for s in strings %}
-                <tr data-index="{{ loop.index0 }}">
-                    <td>{{ loop.index0 }}</td>
-                    <td class="string-cell">{{ s }}</td>
-                </tr>
-            {% endfor %}
-            </tbody>
-        </table>
-        </div>
-        <div class="text-center mt-3">
-            <a href="{{ url_for('download', filename=filename) }}" class="btn btn-outline-light">⬇️ Download Modified File</a>
-        </div>
-    </div>
-
-    <!-- Modal -->
-    <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <form id="editForm">
-            <div class="modal-header">
-              <h5 class="modal-title" id="editModalLabel">Edit String</h5>
-              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        <div class="container mt-3">
+            <h2>Metadata Strings (Page <span id="pageNum">1</span>)</h2>
+            <table class="table table-dark table-hover table-striped" id="stringTable">
+                <thead><tr><th>Index</th><th>String</th></tr></thead><tbody></tbody>
+            </table>
+            <div id="pagination" class="d-flex justify-content-between">
+                <button id="prevBtn" class="btn btn-secondary" disabled>⬅ Prev</button>
+                <button id="nextBtn" class="btn btn-primary">Next ➡</button>
             </div>
-            <div class="modal-body">
-                <input type="hidden" id="editIndex" name="index">
-                <input type="hidden" name="filename" value="{{ filename }}">
-                <div class="mb-3">
-                    <label for="editValue" class="form-label">New String</label>
-                    <input type="text" class="form-control form-control-dark" id="editValue" name="new_value" required>
-                </div>
+            <div class="text-center mt-3">
+                <a href="{{ url_for('download', filename=filename) }}" class="btn btn-outline-light">⬇ Download Modified</a>
             </div>
-            <div class="modal-footer">
-              <button type="submit" class="btn btn-primary">💾 Save</button>
-              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-            </div>
-          </form>
         </div>
-      </div>
-    </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        const searchBox = document.getElementById('searchBox');
-        const table = document.getElementById('stringTable');
-        const rows = table.querySelectorAll('tbody tr');
-        const editModal = new bootstrap.Modal(document.getElementById('editModal'));
-        const editForm = document.getElementById('editForm');
-        const editValueInput = document.getElementById('editValue');
-        const editIndexInput = document.getElementById('editIndex');
+        <!-- Edit Modal -->
+        <div class="modal fade" id="editModal" tabindex="-1">
+          <div class="modal-dialog">
+            <div class="modal-content bg-dark text-light">
+              <div class="modal-header"><h5 class="modal-title">Edit String</h5></div>
+              <div class="modal-body">
+                <input type="hidden" id="editIndex">
+                <input type="text" id="editValue" class="form-control">
+              </div>
+              <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-primary" id="saveEdit">Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
-        // Debounce function to limit search frequency
-        function debounce(func, wait) {
-            let timeout;
-            return function(...args) {
-                clearTimeout(timeout);
-                timeout = setTimeout(() => func.apply(this, args), wait);
-            };
-        }
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+        <script>
+            let currentPage=1, limit=10;
+            const tableBody=document.querySelector("#stringTable tbody");
+            const prevBtn=document.getElementById("prevBtn");
+            const nextBtn=document.getElementById("nextBtn");
+            const pageNum=document.getElementById("pageNum");
+            const editModal=new bootstrap.Modal(document.getElementById("editModal"));
+            const editValue=document.getElementById("editValue");
+            const editIndex=document.getElementById("editIndex");
 
-        function filterTable() {
-            const filter = searchBox.value.toLowerCase();
-            rows.forEach(row => {
-                const text = row.querySelector('.string-cell').textContent.toLowerCase();
-                row.style.display = text.includes(filter) ? '' : 'none';
+            function loadPage(page){
+                fetch(`/get_strings_page?filename={{ filename }}&page=${page}&limit=${limit}`)
+                .then(r=>r.json()).then(data=>{
+                    tableBody.innerHTML="";
+                    data.strings.forEach((s,i)=>{
+                        tableBody.insertAdjacentHTML('beforeend',
+                            `<tr data-index="${data.start_index+i}"><td>${data.start_index+i}</td><td>${s}</td></tr>`);
+                    });
+                    document.querySelectorAll("tr[data-index]").forEach(row=>{
+                        row.addEventListener("click",()=>{
+                            editIndex.value=row.dataset.index;
+                            editValue.value=row.children[1].textContent;
+                            editModal.show();
+                        });
+                    });
+                    currentPage=page;
+                    pageNum.textContent=page;
+                    prevBtn.disabled=(page===1);
+                    nextBtn.disabled=!data.has_more;
+                });
+            }
+
+            prevBtn.addEventListener("click",()=>loadPage(currentPage-1));
+            nextBtn.addEventListener("click",()=>loadPage(currentPage+1));
+            document.getElementById("saveEdit").addEventListener("click",()=>{
+                fetch("/update",{method:"POST",body:new URLSearchParams({
+                    index:editIndex.value,new_value:editValue.value,filename:"{{ filename }}"
+                })}).then(r=>r.json()).then(resp=>{
+                    if(resp.success){
+                        const row=document.querySelector(`tr[data-index="${editIndex.value}"] td:nth-child(2)`);
+                        if(row) row.textContent=editValue.value;
+                        editModal.hide();
+                    } else alert("Save failed: "+resp.error);
+                });
             });
-        }
 
-        searchBox.addEventListener('input', debounce(filterTable, 200));
-
-        // Click row to open modal
-        rows.forEach(row => {
-            row.addEventListener('click', () => {
-                const idx = row.getAttribute('data-index');
-                const text = row.querySelector('.string-cell').textContent;
-                editIndexInput.value = idx;
-                editValueInput.value = text;
-                editModal.show();
-                editValueInput.focus();
-            });
-        });
-
-        // AJAX submit for edit form
-        editForm.addEventListener('submit', e => {
-            e.preventDefault();
-            const data = new FormData(editForm);
-            fetch('/update', {
-                method: 'POST',
-                body: data,
-            }).then(resp => {
-                if (resp.ok) {
-                    const idx = editIndexInput.value;
-                    const row = table.querySelector(`tr[data-index="${idx}"]`);
-                    if(row) {
-                        row.querySelector('.string-cell').textContent = editValueInput.value;
-                    }
-                    editModal.hide();
-                } else {
-                    alert('Failed to save.');
-                }
-            }).catch(() => alert('Network error.'));
-        });
-    </script>
+            loadPage(1);
+        </script>
     </body>
     </html>
-    """, strings=strings, filename=filename)
+    """, filename=filename)
+
+
+@app.route("/get_strings_page")
+def get_strings_page():
+    filename = request.args.get("filename")
+    page = int(request.args.get("page", 1))
+    limit = int(request.args.get("limit", 10))
+
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    if not os.path.isfile(filepath):
+        return jsonify({"error": "File not found"}), 404
+
+    meta_obj = MetadataFile(filepath)
+    all_strings = meta_obj.get_strings()
+
+    start = (page - 1) * limit
+    end = min(start + limit, len(all_strings))
+    batch = all_strings[start:end]
+
+    return jsonify({
+        "strings": batch,
+        "start_index": start,
+        "has_more": end < len(all_strings)
+    })
 
 
 @app.route("/update", methods=["POST"])
 def update():
     filename = request.form.get("filename")
-    if not filename:
-        return jsonify({"error": "Missing filename"}), 400
     filepath = os.path.join(UPLOAD_FOLDER, filename)
     if not os.path.isfile(filepath):
         return jsonify({"error": "File not found"}), 404
@@ -303,10 +254,8 @@ def update():
         new_value = request.form["new_value"]
         meta_obj.set_string(index, new_value)
 
-        # Save changes back to file
-        output = meta_obj.save()
         with open(filepath, "wb") as f:
-            f.write(output.read())
+            f.write(meta_obj.save().read())
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -315,20 +264,15 @@ def update():
 @app.route("/download")
 def download():
     filename = request.args.get("filename")
-    if not filename:
-        return redirect(url_for("index"))
     filepath = os.path.join(UPLOAD_FOLDER, filename)
-    if not os.path.isfile(filepath):
+    if not filename or not os.path.isfile(filepath):
         return redirect(url_for("index"))
 
-    try:
-        meta_obj = MetadataFile(filepath)
-        output = meta_obj.save()
-        return send_file(output, as_attachment=True, download_name=f"modified-{filename}")
-    except Exception as e:
-        return f"Failed to prepare file for download: {e}", 500
+    meta_obj = MetadataFile(filepath)
+    return send_file(meta_obj.save(), as_attachment=True, download_name=f"modified-{filename}")
 
 
+# ------------------- Run -------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
