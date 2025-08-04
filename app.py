@@ -137,7 +137,7 @@ def edit():
     except Exception as e:
         return f"Failed to parse metadata file: {e}", 400
 
-    strings = meta_obj.get_strings()[:100]
+    strings = meta_obj.get_strings() # [:100]
 
     return render_template_string("""
     <!doctype html>
